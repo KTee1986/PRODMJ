@@ -7,10 +7,10 @@ const navItems = [
   { label: "Running Total", path: "/running-total" },
   { label: "Chart", path: "/chart" },
   { label: "Game History", path: "/game-history" },
-  { label: "Player Insights", path: "/player-insights" },
   { label: "Stats", path: "/stats" },
-  { label: "Advanced Stats", path: "/advanced-stats" },
-  { label: "Head-to-Head", path: "/head-to-head" },
+  { label: "(WIP) Player Insights", path: "/player-insights" },
+  { label: "(WIP) Advanced Stats", path: "/advanced-stats" },
+  { label: "(WIP) Head-to-Head", path: "/head-to-head" },
 ];
 
 export default function Layout({ children }) {
