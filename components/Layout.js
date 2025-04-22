@@ -11,6 +11,7 @@ const navItems = [
   { label: "(WIP) Player Insights", path: "/player-insights" },
   { label: "(WIP) Advanced Stats", path: "/advanced-stats" },
   { label: "(WIP) Head-to-Head", path: "/head-to-head" },
+  { label: "Player List", path: "/player-list" },
 ];
 
 export default function Layout({ children }) {
