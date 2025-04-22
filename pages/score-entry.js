@@ -145,6 +145,26 @@ export default function ScoreEntry() {
           North: -200,
         });
         setSumOfScores(-800);
+
+        // Copy result to clipboard
+        const resultText = seats
+          .map(
+            (seat) =>
+              `${flatPlayers[seat] || "None"} : ${adjustedScores[seat]}`
+          )
+          .join("\n");
+        navigator.clipboard
+          .writeText(resultText)
+          .then(() => {
+            setMessage(message + " Result copied to clipboard!");
+          })
+          .catch((err) => {
+            console.error("Could not copy text: ", err);
+            setMessage(
+              message +
+                " Could not copy result to clipboard. Please copy manually."
+            );
+          });
       } else {
         setError(data.error || "Error submitting game.");
       }
@@ -163,6 +183,21 @@ export default function ScoreEntry() {
     return true;
   };
 
+  const areAllSeatsFilled = () => {
+    return seats.every(seat => players[seat].length > 0);
+  };
+
+  const getAvailablePlayers = (currentSeat) => {
+    return availablePlayers.filter(player => {
+      for (const seat in players) {
+        if (seat !== currentSeat && players[seat].includes(player.name)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  };
+
   if (isAdmin === null) return null;
 
   return (
@@ -173,21 +208,19 @@ export default function ScoreEntry() {
         <div key={seat} className="mb-6">
           <label className="block font-semibold">{seat} Players</label>
           <div className="flex flex-wrap gap-2">
-            {availablePlayers.map((player) => (
-              isPlayerAvailable(seat, player.name) ? (
-                <button
-                  key={player.id}
-                  onClick={() => handlePlayerSelect(seat, player.name)}
-                  className={`px-2 py-1 rounded text-xs mt-1 mb-1 text-center whitespace-nowrap ${
-                    players[seat].includes(player.name)
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-200 hover:bg-gray-300 text-black"
-                  }`}
-                  style={{ minWidth: "4ch" }}
-                >
-                  {player.name}
-                </button>
-              ) : null
+            {getAvailablePlayers(seat).map((player) => (
+              <button
+                key={player.id}
+                onClick={() => handlePlayerSelect(seat, player.name)}
+                className={`px-2 py-1 rounded text-xs mt-1 mb-1 text-center whitespace-nowrap ${
+                  players[seat].includes(player.name)
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-200 hover:bg-gray-300 text-black"
+                }`}
+                style={{ minWidth: "4ch" }}
+              >
+                {player.name}
+              </button>
             ))}
           </div>
 
@@ -232,7 +265,8 @@ export default function ScoreEntry() {
 
       <button
         onClick={handleSubmit}
-        className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-white mt-4"
+        className={`bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-white mt-4 ${areAllSeatsFilled() ? "" : "opacity-50 cursor-not-allowed"}`}
+        disabled={!areAllSeatsFilled()}
       >
         Submit Game
       </button>

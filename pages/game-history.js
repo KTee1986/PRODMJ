@@ -6,22 +6,43 @@ export default function GameHistory() {
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 50;
   const [totalPages, setTotalPages] = useState(1);
+  const [invalidDateRows, setInvalidDateRows] = useState([]);
 
   useEffect(() => {
     fetch("/api/sheet")
       .then((res) => res.json())
       .then(({ data }) => {
-        const slicedData = data.slice(1); // Ignore header row
-        // Sort data by date in descending order (latest first)
-        const sortedData = slicedData.sort((a, b) => new Date(b[1]) - new Date(a[1]));
-        setData(sortedData);
-        setTotalPages(Math.ceil(sortedData.length / rowsPerPage));
+        const slicedData = data.slice(1);
+        const validRows = [];
+        const invalidRows = [];
+
+        slicedData.forEach((row) => {
+          try {
+            new Date(row[1]);
+            validRows.push(row);
+          } catch (error) {
+            console.error("Invalid date in row:", row);
+            invalidRows.push(row);
+          }
+        });
+
+        // Sort valid rows by date (latest first)
+        validRows.sort((a, b) => new Date(b[1]) - new Date(a[1]));
+
+        setData(validRows);
+        setTotalPages(Math.ceil(validRows.length / rowsPerPage));
+        setInvalidDateRows(invalidRows);
       });
   }, []);
 
   const formatDate = (dateStr) => {
-    const date = new Date(dateStr);
-    return date.toISOString().split("T")[0]; // Format to YYYY-MM-DD
+    try {
+      const date = new Date(dateStr);
+      return date.toISOString().split("T")[0];
+    } catch (error) {
+      console.error("Error formatting date:", dateStr);
+      return "Invalid Date";
+    }
   };
 
   const handlePageChange = (pageNumber) => {
@@ -32,7 +53,23 @@ export default function GameHistory() {
 
   return (
     <Layout>
-      <h1 className="text-xl font-bold mb-4">Game History</h1>
+      <h1 className="text-xl font-bold mb-4">
+        Game History ({data.length} Games)
+      </h1>
+
+      {invalidDateRows.length > 0 && (
+        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4" role="alert">
+          <p className="font-bold">Warning: Some rows have invalid dates:</p>
+          <ul>
+            {invalidDateRows.map((row, index) => (
+              <li key={index}>
+                Row ID: {row[0]}, Date: {row[1]}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="overflow-x-auto text-sm">
         <table className="w-full border-collapse border border-gray-700">
           <thead className="bg-gray-800 text-white">
