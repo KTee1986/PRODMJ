@@ -1,4 +1,3 @@
-// pages/score-entry.js
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Layout from "../components/Layout";
@@ -34,6 +33,7 @@ export default function ScoreEntry() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [sumOfScores, setSumOfScores] = useState(-800);
+  const [latestGameResult, setLatestGameResult] = useState(null); // State to hold the latest game result
 
   useEffect(() => {
     const admin = sessionStorage.getItem("admin");
@@ -146,13 +146,16 @@ export default function ScoreEntry() {
         });
         setSumOfScores(-800);
 
-        // Copy result to clipboard
+        // Prepare result text for display and clipboard
         const resultText = seats
           .map(
             (seat) =>
               `${flatPlayers[seat] || "None"} : ${adjustedScores[seat]}`
           )
           .join("\n");
+
+        setLatestGameResult(resultText); // Set the latest game result to state
+
         navigator.clipboard
           .writeText(resultText)
           .then(() => {
@@ -270,6 +273,14 @@ export default function ScoreEntry() {
       >
         Submit Game
       </button>
+
+      {/* Display the latest game result */}
+      {latestGameResult && (
+        <div className="mt-8 p-4 bg-gray-100 rounded-md">
+          <h2 className="text-lg font-semibold mb-2 text-black">Latest Game Result</h2>
+          <pre className="whitespace-pre-wrap text-black">{latestGameResult}</pre>
+        </div>
+      )}
     </Layout>
   );
 }
