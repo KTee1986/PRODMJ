@@ -8,8 +8,8 @@ const navItems = [
   { label: "Chart", path: "/chart" },
   { label: "Game History", path: "/game-history" },
   { label: "Stats", path: "/stats" },
-  /*{ label: "(WIP) Player Insights", path: "/player-insights" },
-  { label: "(WIP) Advanced Stats", path: "/advanced-stats" },
+  { label: "Player Insights", path: "/player-insights" },
+ /* { label: "(WIP) Advanced Stats", path: "/advanced-stats" },
   { label: "(WIP) Head-to-Head", path: "/head-to-head" },*/
   { label: "Player List", path: "/player-list" },
 ];
