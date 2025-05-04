@@ -1,33 +1,59 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/router";
 import Layout from "../components/Layout"; // Assuming Layout provides main structure
+import _ from 'lodash'; // Import lodash for deep comparison
 
 const seats = ["East", "South", "West", "North"];
 const colors = ["Red", "Blue", "Green", "White"];
 const colorValues = { Red: 20, Blue: 10, Green: 2, White: 0.4 };
 const MAX_PLAYERS_PER_SEAT = 2;
-const INPUT_WIDTH_CH = 3;
+const INPUT_WIDTH_CH = 3; // Character width for the input
+
+// Define default color counts
+const defaultColorCountsPerSeat = { Red: 8, Blue: 2, Green: 9, White: 5 };
+
+// Function to create initial state with defaults
+const createInitialColorCounts = () => {
+    const initialState = {};
+    seats.forEach(seat => {
+        initialState[seat] = { ...defaultColorCountsPerSeat };
+    });
+    return initialState;
+};
+
+// Function to calculate score based on counts
+const calculateSeatScore = (counts) => {
+    let total = 0;
+    for (const color in counts) {
+        // Treat empty string input as 0 for calculation
+        const countValue = counts[color] === '' ? 0 : (counts[color] || 0);
+        total += countValue * (colorValues[color] || 0);
+    }
+    // Round to one decimal place
+    return parseFloat(total.toFixed(1)) - 200;
+};
 
 export default function ScoreEntry() {
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(null);
   const [players, setPlayers] = useState({ East: [], South: [], West: [], North: [] });
-  const [colorCounts, setColorCounts] = useState({ East: { Red: 0, Blue: 0, Green: 0, White: 0 }, South: { Red: 0, Blue: 0, Green: 0, White: 0 }, West: { Red: 0, Blue: 0, Green: 0, White: 0 }, North: { Red: 0, Blue: 0, Green: 0, White: 0 } });
-  const [scores, setScores] = useState({ East: -200, South: -200, West: -200, North: -200 });
-  const [availablePlayers, setAvailablePlayers] = useState([]); // Array of UNIQUE { name, settleUpMemberId }
+  const [colorCounts, setColorCounts] = useState(createInitialColorCounts());
+  const [scores, setScores] = useState({ East: 0, South: 0, West: 0, North: 0 });
+  const [availablePlayers, setAvailablePlayers] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [sumOfScores, setSumOfScores] = useState(-800);
+  const [sumOfScores, setSumOfScores] = useState(0);
   const [latestGameResult, setLatestGameResult] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Authentication Check
   useEffect(() => {
     const admin = sessionStorage.getItem("admin");
     if (admin !== "true") router.replace("/login");
     else setIsAdmin(true);
   }, [router]);
 
-  // Fetch and De-duplicate Players by NAME
+  // Fetch and De-duplicate Players
   useEffect(() => {
     fetch("/api/players")
       .then((res) => {
@@ -52,22 +78,49 @@ export default function ScoreEntry() {
             }
         });
         const uniquePlayerList = Array.from(uniquePlayersMap.values());
-        console.log("Unique players list (by name):", uniquePlayerList);
         setAvailablePlayers(uniquePlayerList);
       })
       .catch((err) => {
-        setError("Error fetching or processing players. Ensure /api/players returns correct data including 'name' and 'settleUpMemberId'.");
+        setError("Error fetching or processing players.");
         console.error(err);
          setAvailablePlayers([]);
       });
   }, []);
-  // End Fetch and De-duplicate
 
+  // Calculate initial scores and sum on mount
+  useEffect(() => {
+      const initialScores = {};
+      let initialSum = 0;
+      seats.forEach(seat => {
+          const score = calculateSeatScore(colorCounts[seat]);
+          initialScores[seat] = score;
+          initialSum += score;
+      });
+      setScores(initialScores);
+      setSumOfScores(parseFloat(initialSum.toFixed(1)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
+
+  // Recalculate scores and sum whenever color counts change
+  useEffect(() => {
+    const newScores = {};
+    let newSum = 0;
+    seats.forEach(seat => {
+        const score = calculateSeatScore(colorCounts[seat]);
+        newScores[seat] = score;
+        newSum += score;
+    });
+    setScores(newScores);
+    setSumOfScores(parseFloat(newSum.toFixed(1)));
+  }, [colorCounts]);
+
+  // Player Selection Logic
   const handlePlayerSelect = (seat, playerObject) => {
     setPlayers((prevPlayers) => {
       const newPlayers = { ...prevPlayers };
       const seatPlayers = newPlayers[seat];
       const isSelectedInSeat = seatPlayers.some(p => p.name === playerObject.name);
+
       if (isSelectedInSeat) {
         newPlayers[seat] = seatPlayers.filter((p) => p.name !== playerObject.name);
       } else if (seatPlayers.length < MAX_PLAYERS_PER_SEAT) {
@@ -77,34 +130,57 @@ export default function ScoreEntry() {
               console.warn(`Player "${playerObject.name}" is already selected in another seat.`);
          }
       }
-      console.log("Players state updated:", newPlayers);
       return newPlayers;
     });
   };
 
-  const calculateScore = useCallback((seat, counts) => {
-    let total = 0;
-    for (const color in counts) { total += counts[color] * colorValues[color]; }
-    const finalScore = parseFloat(total.toFixed(1)) - 200;
-    setScores((prevScores) => ({ ...prevScores, [seat]: finalScore }));
-  }, []);
-
-  const handleColorChange = (seat, color, change) => {
-    const newColorCounts = { ...colorCounts };
-    const currentValue = newColorCounts[seat][color] || 0;
-    const newValue = Math.max(0, currentValue + change);
-    newColorCounts[seat][color] = newValue;
-    setColorCounts(newColorCounts);
-    calculateScore(seat, newColorCounts[seat]);
+  const isPlayerSelectedElsewhere = (currentSeat, playerObject) => {
+    for (const otherSeat in players) {
+      if (otherSeat !== currentSeat) {
+        if (players[otherSeat].some(p => p.name === playerObject.name)) {
+          return true;
+        }
+      }
+    }
+    return false;
   };
 
-  useEffect(() => {
-    const newSum = Object.values(scores).reduce((sum, score) => sum + parseFloat(score || 0), 0);
-    setSumOfScores(parseFloat(newSum.toFixed(1)));
-  }, [scores]);
+  const getAvailablePlayersForSeat = (currentSeat) => {
+    return availablePlayers.filter(player => !isPlayerSelectedElsewhere(currentSeat, player));
+  };
 
+  // Handle +/- Button Clicks
+  const handleColorChange = (seat, color, change) => {
+    setColorCounts(prevCounts => {
+        const newCounts = { ...prevCounts };
+        const currentSeatCounts = { ...newCounts[seat] };
+        const currentValue = currentSeatCounts[color] === '' ? 0 : (currentSeatCounts[color] || 0);
+        const newValue = Math.max(0, currentValue + change);
+        currentSeatCounts[color] = newValue;
+        newCounts[seat] = currentSeatCounts;
+        return newCounts;
+    });
+  };
+
+  // Handle Direct Input Change
+  const handleColorInputChange = (seat, color, event) => {
+      const rawValue = event.target.value;
+      const value = parseInt(rawValue, 10);
+
+      if (rawValue === '' || (!isNaN(value) && value >= 0)) {
+          setColorCounts(prevCounts => {
+              const newCounts = { ...prevCounts };
+              const currentSeatCounts = { ...newCounts[seat] };
+              currentSeatCounts[color] = rawValue === '' ? '' : value;
+              newCounts[seat] = currentSeatCounts;
+              return newCounts;
+          });
+      }
+  };
+
+  // Settle Up Integration
   const triggerSettleUpIntegration = async (gameData) => {
-    setMessage(prev => prev + " | Checking Settle Up sync..."); // Initial message
+    setMessage(prev => prev + " | Checking Settle Up sync...");
     try {
       const settleUpRes = await fetch("/api/settleup-expense", {
         method: "POST",
@@ -130,49 +206,103 @@ export default function ScoreEntry() {
     }
   }
 
+  // Handle Form Submission
   const handleSubmit = async () => {
     if (isSubmitting) return;
     setError("");
     setMessage("");
     setIsSubmitting(true);
 
-    // Validations
-    if (Math.abs(sumOfScores) > 0.01) { setError("Sum of scores must be exactly 0."); setIsSubmitting(false); return; }
-    const filledSeatsData = seats.map(seat => ({ seat, players: players[seat], score: scores[seat] }));
-    const activeSeats = filledSeatsData.filter(s => s.players.length > 0 && s.score !== -200);
-    if (activeSeats.length < 2) { setError("At least two seats must have players and scores entered."); setIsSubmitting(false); return; }
-    const seatsWithPlayersButNoScore = filledSeatsData.filter(s => s.players.length > 0 && s.score === -200);
-    if (seatsWithPlayersButNoScore.length > 0) { setError(`Seat(s) ${seatsWithPlayersButNoScore.map(s=>s.seat).join(', ')} have players selected but no scores entered.`); setIsSubmitting(false); return; }
+    // --- VALIDATION CHECKS ---
 
-    // Prepare data
+    // 1. Check if all seats have default values
+    const allSeatsDefault = seats.every(seat =>
+        _.isEqual(
+            Object.fromEntries(Object.entries(colorCounts[seat]).map(([k, v]) => [k, v === '' ? 0 : v])),
+            defaultColorCountsPerSeat
+        )
+    );
+    if (allSeatsDefault) {
+        setError("Cannot submit with default values for all seats. Please enter scores.");
+        setIsSubmitting(false);
+        return;
+    }
+
+    // 2. Check if sum of scores is zero
+    if (Math.abs(sumOfScores) > 0.01) {
+      setError("Sum of scores must be exactly 0.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    // 3. Check if ALL seats have players selected
+    const seatsWithPlayersCount = seats.filter(seat => players[seat].length > 0).length;
+    if (seatsWithPlayersCount < 4) { // UPDATED CHECK
+        setError("All four seats must have players selected."); // UPDATED MESSAGE
+        setIsSubmitting(false);
+        return;
+    }
+
+    // --- End Validation Checks ---
+
+
+    // --- Prepare data for API ---
     const sheetPlayersPayload = {};
-    for (const seat of seats) { sheetPlayersPayload[seat] = players[seat].map(p => p.name).join(" + "); }
-    const adjustedScores = {};
-    for (const seat of seats) { adjustedScores[seat] = parseFloat(scores[seat].toFixed(1)); }
+    seats.forEach(seat => {
+        sheetPlayersPayload[seat] = players[seat].map(p => p.name).join(" + ");
+    });
 
+    const adjustedScores = {};
+    seats.forEach(seat => {
+        adjustedScores[seat] = parseFloat(scores[seat].toFixed(1));
+    });
+
+    const settleUpPlayersPayload = {};
+     seats.forEach(seat => {
+        settleUpPlayersPayload[seat] = players[seat];
+    });
+
+
+    // --- API Calls ---
     try {
       // 1. Submit to Google Sheet
       const res = await fetch("/api/sheet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ players: sheetPlayersPayload, scores: adjustedScores }),
+        body: JSON.stringify({
+            players: sheetPlayersPayload,
+            scores: adjustedScores
+        }),
       });
       const data = await res.json();
 
       if (res.ok) {
         const gameId = data.gameId;
-        setMessage(`Game recorded! ID: ${gameId}`); // Initial success message
-        const resultText = seats.map(seat => `${sheetPlayersPayload[seat] || "Empty"} : ${adjustedScores[seat]}`).filter(line => !line.startsWith("Empty")).join("\n");
+        setMessage(`Game recorded! ID: ${gameId}`);
+
+        const resultText = seats
+            .map(seat => `${sheetPlayersPayload[seat] || "Empty"} : ${adjustedScores[seat]}`)
+            // No need to filter empty as validation ensures all seats have players
+            .join("\n");
         setLatestGameResult(resultText);
-        navigator.clipboard.writeText(resultText).then(() => setMessage(prev => prev + " | Result copied.")).catch((err) => { console.error("Could not copy text: ", err); setMessage(prev => prev + " | Couldn't copy result."); });
 
-        // 2. Trigger Settle Up (will now handle disabled state message)
-        await triggerSettleUpIntegration({ gameId: gameId, scores: adjustedScores, players: players });
+        navigator.clipboard.writeText(resultText)
+            .then(() => setMessage(prev => prev + " | Result copied."))
+            .catch((err) => {
+                console.error("Could not copy text: ", err);
+                setMessage(prev => prev + " | Couldn't copy result.");
+            });
 
-        // Reset form
+        // 2. Trigger Settle Up Integration
+        await triggerSettleUpIntegration({
+            gameId: gameId,
+            scores: adjustedScores,
+            players: settleUpPlayersPayload
+        });
+
+        // Reset Form on Success
         setPlayers({ East: [], South: [], West: [], North: [] });
-        setColorCounts({ East: { Red: 0, Blue: 0, Green: 0, White: 0 }, South: { Red: 0, Blue: 0, Green: 0, White: 0 }, West: { Red: 0, Blue: 0, Green: 0, White: 0 }, North: { Red: 0, Blue: 0, Green: 0, White: 0 } });
-        setScores({ East: -200, South: -200, West: -200, North: -200 });
+        setColorCounts(createInitialColorCounts());
 
       } else {
         setError(data.error || "Error submitting game to sheet.");
@@ -185,116 +315,166 @@ export default function ScoreEntry() {
     }
   };
 
-  // Check if player NAME is selected elsewhere
-  const isPlayerSelectedElsewhere = (currentSeat, playerObject) => {
-    for (const otherSeat in players) {
-      if (otherSeat !== currentSeat) {
-        if (players[otherSeat].some(p => p.name === playerObject.name)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  };
-
-  // Filter available players based on NAME
-  const getAvailablePlayersForSeat = (currentSeat) => {
-    return availablePlayers.filter(player => !isPlayerSelectedElsewhere(currentSeat, player));
-  };
-
+  // Determine if Submit Button Should Be Disabled
   const isSubmitDisabled = () => {
+     // Disable if currently submitting
      if (isSubmitting) return true;
+
+     // Disable if all seats have default values
+     const allSeatsDefault = seats.every(seat =>
+        _.isEqual(
+            Object.fromEntries(Object.entries(colorCounts[seat]).map(([k, v]) => [k, v === '' ? 0 : v])),
+            defaultColorCountsPerSeat
+        )
+     );
+     if (allSeatsDefault) return true;
+
+     // Disable if sum of scores is not 0
      if (Math.abs(sumOfScores) > 0.01) return true;
-     const activeSeatsCount = seats.filter(s => players[s].length > 0 && scores[s] !== -200).length;
-     if (activeSeatsCount < 2) return true;
-     const invalidScoreSeats = seats.filter(s => players[s].length > 0 && scores[s] === -200).length;
-     if (invalidScoreSeats > 0) return true;
+
+     // Disable if less than 4 seats have players
+     const seatsWithPlayersCount = seats.filter(seat => players[seat].length > 0).length;
+     if (seatsWithPlayersCount < 4) return true; // UPDATED CHECK
+
+     // Otherwise, enable
      return false;
   }
 
-  if (isAdmin === null) return <div>Loading...</div>;
+  // Render Loading State
+  if (isAdmin === null) return <Layout><div className="text-center p-8 text-white">Loading...</div></Layout>;
 
+  // Render Main Component
   return (
     <Layout>
-      {/* Assuming Layout doesn't force a background, otherwise need to override */}
-      {/* Main title - ensure contrast if Layout background is black */}
-      <h1 className="text-xl font-bold mb-4 text-white">Score Entry</h1>
+      {/* Main title */}
+      <h1 className="text-2xl font-bold mb-6 text-center text-white">Score Entry</h1>
 
-      {/* Player Selection Sections */}
-      {seats.map((seat) => (
-        // *** MODIFIED: Changed background to black, adjusted text/elements inside ***
-        <div key={seat} className="mb-6 p-4 border border-gray-700 rounded bg-black text-gray-200">
-          <label className="block font-semibold text-lg mb-2 text-white">{seat} Players</label>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {getAvailablePlayersForSeat(seat).map((player) => (
-              <button
-                key={player.name}
-                onClick={() => handlePlayerSelect(seat, player)}
-                // Adjusted button colors for black background
-                className={`px-2 py-1 rounded text-xs mt-1 mb-1 text-center whitespace-nowrap transition-colors duration-150 ${
-                  players[seat].some(p => p.name === player.name)
-                    ? "bg-blue-600 text-white ring-2 ring-blue-400" // Selected: keep blue
-                    : "bg-gray-700 hover:bg-gray-600 text-gray-100" // Default: dark gray
-                } ${players[seat].length >= MAX_PLAYERS_PER_SEAT && !players[seat].some(p => p.name === player.name) ? "opacity-50 cursor-not-allowed" : ""}`}
-                disabled={players[seat].length >= MAX_PLAYERS_PER_SEAT && !players[seat].some(p => p.name === player.name)}
-                style={{ minWidth: "5ch" }}
-              >
-                {player.name}
-              </button>
-            ))}
-             {players[seat].length === 0 && <span className="text-xs text-gray-400 italic">Select player(s)</span>}
-          </div>
+      {/* Grid for Seat Sections */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 px-4">
+          {seats.map((seat) => (
+            <div key={seat} className="p-4 border border-gray-700 rounded-lg bg-gray-900 text-gray-200 shadow-md">
+              {/* Seat Title */}
+              <h2 className="text-xl font-semibold mb-3 text-white border-b border-gray-600 pb-2">{seat}</h2>
 
-          {/* Color Selection Sections */}
-          <label className="block font-semibold text-lg mb-2 text-white">{seat} Colors</label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
-            {colors.map((color) => (
-              // Adjusted background for color selection boxes
-              <div key={color} className="flex flex-col items-center p-2 bg-gray-800 rounded shadow-sm">
-                <label className="mb-1 font-medium text-sm text-gray-200">{color} ({colorValues[color]})</label>
-                <div className="flex items-center justify-center mt-1">
-                  {/* Adjusted +/- button colors */}
-                  <button onClick={() => handleColorChange(seat, color, -1)} className="px-3 py-1 rounded-l bg-red-800 hover:bg-red-700 text-red-100 font-bold disabled:opacity-50" disabled={colorCounts[seat][color] <= 0}>-</button>
-                  {/* Adjusted count display colors */}
-                  <div className="px-2 py-1 text-center mx-0 bg-gray-700 font-mono text-sm text-white" style={{ width: `${INPUT_WIDTH_CH + 1}ch`, minWidth: `${INPUT_WIDTH_CH + 1}ch` }}>{colorCounts[seat][color] || 0}</div>
-                  <button onClick={() => handleColorChange(seat, color, 1)} className="px-3 py-1 rounded-r bg-green-800 hover:bg-green-700 text-green-100 font-bold">+</button>
-                </div>
+              {/* Player Selection */}
+              <div className="mb-4">
+                  <label className="block font-medium text-md mb-2 text-gray-300">Players</label>
+                  <div className="flex flex-wrap gap-2">
+                    {getAvailablePlayersForSeat(seat).map((player) => (
+                      <button
+                        key={player.name}
+                        onClick={() => handlePlayerSelect(seat, player)}
+                        className={`px-3 py-1 rounded text-sm transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 ${
+                          players[seat].some(p => p.name === player.name)
+                            ? "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500"
+                            : "bg-gray-700 text-gray-100 hover:bg-gray-600 focus:ring-gray-500"
+                        } ${
+                            players[seat].length >= MAX_PLAYERS_PER_SEAT && !players[seat].some(p => p.name === player.name)
+                            ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
+                        disabled={players[seat].length >= MAX_PLAYERS_PER_SEAT && !players[seat].some(p => p.name === player.name)}
+                      >
+                        {player.name}
+                      </button>
+                    ))}
+                    {/* Informational messages */}
+                    {availablePlayers.length === 0 && <span className="text-xs text-gray-500 italic">No players loaded</span>}
+                    {availablePlayers.length > 0 && getAvailablePlayersForSeat(seat).length === 0 && players[seat].length === 0 && <span className="text-xs text-gray-500 italic">All players assigned</span>}
+                    {players[seat].length === 0 && getAvailablePlayersForSeat(seat).length > 0 && <span className="text-xs text-gray-500 italic">Select player(s)</span>}
+                  </div>
               </div>
-            ))}
-          </div>
-          {/* Adjusted score text color */}
-          <p className="mt-3 font-semibold text-md text-gray-200">
-            Seat Score: <span className={scores[seat] >= 0 ? 'text-green-400' : 'text-red-400'}>{scores[seat]}</span>
-          </p>
+
+              {/* Color/Score Entry */}
+              <div>
+                  <label className="block font-medium text-md mb-2 text-gray-300">Colors</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {colors.map((color) => (
+                      <div key={color} className="flex flex-col items-center p-2 bg-gray-800 rounded shadow-sm border border-gray-700">
+                        <label className="mb-1 font-medium text-xs text-gray-400">{color} ({colorValues[color]})</label>
+                        <div className="flex items-center justify-center mt-1 w-full">
+                          {/* Minus Button */}
+                          <button
+                              onClick={() => handleColorChange(seat, color, -1)}
+                              className="px-3 py-1 rounded-l bg-red-700 hover:bg-red-600 text-red-100 font-bold disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 focus:ring-offset-gray-800"
+                              disabled={(colorCounts[seat][color] === '' || (colorCounts[seat][color] || 0) <= 0) || isSubmitting}
+                          >
+                              -
+                          </button>
+                          {/* Editable Input */}
+                          <input
+                              type="number"
+                              min="0"
+                              value={colorCounts[seat][color]} // Bind directly to state value (can be '' or number)
+                              onChange={(e) => handleColorInputChange(seat, color, e)}
+                              className="px-1 py-1 text-center font-mono text-sm text-white bg-gray-700 border-t border-b border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 no-spinner"
+                              style={{ width: `${INPUT_WIDTH_CH + 2}ch` }} // Adjust width as needed
+                              disabled={isSubmitting}
+                              placeholder="0" // Show placeholder if value is empty string
+                          />
+                          {/* Plus Button */}
+                          <button
+                              onClick={() => handleColorChange(seat, color, 1)}
+                              className="px-3 py-1 rounded-r bg-green-700 hover:bg-green-600 text-green-100 font-bold focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                              disabled={isSubmitting}
+                          >
+                              +
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              </div>
+
+              {/* Seat Score Display */}
+              <p className="mt-4 text-right font-semibold text-lg">
+                Score: <span className={`ml-2 px-2 py-1 rounded ${scores[seat] >= 0 ? 'text-green-300 bg-green-900 bg-opacity-50' : 'text-red-300 bg-red-900 bg-opacity-50'}`}>
+                    {scores[seat]}
+                </span>
+              </p>
+            </div>
+          ))}
+      </div> {/* End Grid for Seat Sections */}
+
+      {/* Submit Section - Sticky Footer */}
+      <div className="sticky bottom-0 mt-6 p-4 border-t border-gray-700 bg-gray-900 shadow-inner">
+        <div className="max-w-3xl mx-auto">
+            {/* Sum of Scores Display */}
+            <p className={`text-xl font-bold mb-3 text-center ${Math.abs(sumOfScores) > 0.01 ? 'text-red-400 animate-pulse' : 'text-green-400'}`}>
+                Sum of Scores: {sumOfScores} {Math.abs(sumOfScores) > 0.01 ? '(Must be 0!)' : ''}
+            </p>
+            {/* Error/Message Display */}
+            {error && <p className="text-red-400 text-sm break-words mb-2 text-center bg-red-900 bg-opacity-40 p-2 rounded border border-red-700">{error}</p>}
+            {message && <p className="text-green-400 text-sm break-words mb-2 text-center bg-green-900 bg-opacity-40 p-2 rounded border border-green-700">{message}</p>}
+            {/* Submit Button */}
+            <button
+                onClick={handleSubmit}
+                className={`w-full bg-blue-600 hover:bg-blue-700 px-4 py-3 rounded text-white text-lg font-semibold transition-opacity duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-blue-500`}
+                disabled={isSubmitDisabled()} // Uses the updated validation logic
+            >
+                {isSubmitting ? "Submitting..." : "Submit Game"}
+            </button>
         </div>
-        // *** END MODIFIED SECTION ***
-      ))}
-
-      {/* Submit Section */}
-      {/* *** MODIFIED: Changed background to black, adjusted text inside *** */}
-      <div className="mt-4 p-4 border border-gray-700 rounded bg-black sticky bottom-0">
-        {/* Adjusted sum text color */}
-        <p className={`text-lg font-bold mb-2 ${Math.abs(sumOfScores) > 0.01 ? 'text-red-400 animate-pulse' : 'text-green-400'}`}>
-            Sum of Scores: {sumOfScores} {Math.abs(sumOfScores) > 0.01 ? '(Must be 0!)' : '(OK)'}
-        </p>
-        {/* Adjusted error/message text colors */}
-        {error && <p className="text-red-400 text-sm break-words">{error}</p>}
-        {message && <p className="text-green-400 text-sm break-words">{message}</p>}
-        {/* Submit button colors are likely fine */}
-        <button onClick={handleSubmit} className={`w-full bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-white mt-2 text-lg font-semibold transition-opacity duration-200 ${isSubmitDisabled() ? "opacity-50 cursor-not-allowed" : ""}`} disabled={isSubmitDisabled()}>{isSubmitting ? "Submitting..." : "Submit Game"}</button>
       </div>
-       {/* *** END MODIFIED SECTION *** */}
 
-
-      {/* Result Display */}
-      {/* *** MODIFIED: Changed background, adjusted text inside *** */}
+      {/* Result Display Area */}
       {latestGameResult && (
-        <div className="mt-8 p-4 bg-gray-900 rounded-md shadow border border-gray-700">
-          <h2 className="text-lg font-semibold mb-2 text-gray-100">Latest Game Result</h2>
-          <pre className="whitespace-pre-wrap text-sm text-gray-200 bg-gray-800 p-3 rounded">{latestGameResult}</pre>
+        <div className="mt-8 mb-8 max-w-3xl mx-auto p-4 bg-gray-800 rounded-md shadow border border-gray-700">
+          <h2 className="text-lg font-semibold mb-3 text-gray-100 border-b border-gray-600 pb-2">Latest Game Result (Copied)</h2>
+          <pre className="whitespace-pre-wrap text-sm text-gray-200 bg-gray-700 p-3 rounded font-mono">{latestGameResult}</pre>
         </div>
       )}
-       {/* *** END MODIFIED SECTION *** */}
+
+      {/* CSS to hide number input spinners */}
+      <style jsx global>{`
+        .no-spinner::-webkit-outer-spin-button,
+        .no-spinner::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .no-spinner {
+          -moz-appearance: textfield; /* Firefox */
+        }
+      `}</style>
     </Layout>
   );
 }
